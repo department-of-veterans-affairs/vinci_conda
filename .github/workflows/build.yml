@@ -75,7 +75,7 @@ jobs:
       run: |
         pwd
         ls ${{ github.event.inputs.build_folder }}        
-      shell: bash
+      shell: pwsh
 
     - name: Determine tag name
       id: tag
@@ -383,4 +383,5 @@ jobs:
                 name: file,
                 data: await fs.readFileSync(`zipped/${file}`)
               });
+
           }
