@@ -80,11 +80,9 @@ jobs:
       run: |
         pwd
         ls ${{ github.event.inputs.build_folder }}        
-      shell: pwsh
 
     - name: Determine tag name
       id: tag
-      shell: pwsh
       run: |
         BUILD_NUMBER="$(git rev-list --count HEAD)"
         SHORT_HASH="$(git rev-parse --short=7 HEAD)"
@@ -136,7 +134,6 @@ jobs:
 
     
     - name: Create Conda Environment
-      shell: pwsh
       run: |
         cd ${{ github.event.inputs.build_folder }}
         $envPath = "${{ github.event.inputs.target_folder }}/${{ github.event.inputs.build_folder }}"
@@ -154,7 +151,6 @@ jobs:
         pip cache purge
 
     - name: Test CUDA availability with torch
-      shell: pwsh
       run: |
         conda activate ${{ github.event.inputs.target_folder }}\${{ github.event.inputs.build_folder }}
         $cuda_available = python -c "import torch; print(torch.cuda.is_available())"
@@ -455,3 +451,4 @@ jobs:
               });
 
           }
+
