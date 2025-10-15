@@ -122,6 +122,11 @@ jobs:
       with:
         miniforge-version: latest         
         auto-activate-base: true
+        
+    - name: Create virtual D drive with subst
+      run: |
+        mkdir C:\conda_envs
+        subst D: C:\conda_envs
 
     
     - name: Create Conda Environment
@@ -442,6 +447,7 @@ jobs:
               });
 
           }
+
 
 
 
