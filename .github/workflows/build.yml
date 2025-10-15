@@ -231,7 +231,7 @@ jobs:
         Remove-Item -Path ${{ github.event.inputs.target_folder }}/ivy/cache/* -Recurse -Force
 
     - name: run post build script
-      shell: pwsh {0}
+      shell: powershell {0}
       run: |
         cd ${{ github.event.inputs.build_folder }}     
         pwd
@@ -436,6 +436,7 @@ jobs:
               });
 
           }
+
 
 
 
