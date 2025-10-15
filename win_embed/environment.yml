@@ -1,16 +1,16 @@
 name: win_embed
 channels:
-  - anaconda
+  - pytorch
   - nvidia
   - conda-forge
   - defaults
-  - pytorch
+  - anaconda
 dependencies:
   - python=3.10
-  # Clean version of PyTorch with GPU support (CUDA 12.2)
+  # Clean version of PyTorch with GPU support (CUDA 12.)
   - pytorch::pytorch
   - pytorch::torchvision
-  - pytorch::pytorch-cuda=12.2
+  - pytorch::pytorch-cuda=12.6
   - conda-forge::dask
   - conda-forge::scikit-learn
   - conda-forge::pyarrow
