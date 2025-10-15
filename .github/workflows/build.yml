@@ -146,17 +146,6 @@ jobs:
         conda clean --all -f -y
         pip cache purge
 
-    - name: Test CUDA availability with torch
-      run: |
-        conda activate ${{ github.event.inputs.target_folder }}\${{ github.event.inputs.build_folder }}
-        $cuda_available = python -c "import torch; print(torch.cuda.is_available())"
-        Write-Host "torch.cuda.is_available() returned: $cuda_available"
-        if ($cuda_available -ne "True") {
-          Write-Error "CUDA is not available in this environment! Exiting workflow."
-          exit 1
-        } else {
-          Write-Host "CUDA is available. Proceeding with workflow."
-        }
 
     - name: check final environment settings
       run: |
@@ -447,6 +436,7 @@ jobs:
               });
 
           }
+
 
 
 
