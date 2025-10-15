@@ -38,7 +38,7 @@ dependencies:
     - openai
     - ollama
     - onnxruntime-gpu
-    - pyspark=3.4.2
+    - pyspark==3.4.2
     - langchain
     - langchain-community
     - langchain-huggingface
