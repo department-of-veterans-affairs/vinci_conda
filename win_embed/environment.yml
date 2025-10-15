@@ -1,18 +1,19 @@
 name: win_embed
 channels:
+  - anaconda
   - nvidia
   - conda-forge
   - defaults
   - pytorch
 dependencies:
   - python=3.10
-  # Clean version of PyTorch with GPU support (CUDA 12.4)
+  # Clean version of PyTorch with GPU support (CUDA 12.2)
   - pytorch::pytorch
   - pytorch::torchvision
-  - pytorch::pytorch-cuda=12.4
+  - pytorch::pytorch-cuda=12.2
   - conda-forge::dask
   - conda-forge::scikit-learn
-  - conda-forge::pyarrow=14.0.1
+  - conda-forge::pyarrow
   - conda-forge:cudnn
   # Core libraries
   - pandas
@@ -23,10 +24,10 @@ dependencies:
   - pyodbc
   - elasticsearch
   - faiss-gpu
-  - pyspark=3.4.2
-  - flask
+  - anaconda::pyrush
   - pip
   - pip:
+    - setuptools
     - transformers>=4.51.0
     - sentence-transformers>3.0.0
     - accelerate
@@ -37,4 +38,13 @@ dependencies:
     - openai
     - ollama
     - onnxruntime-gpu
+    - pyspark=3.4.2
     - langchain
+    - langchain-community
+    - langchain-huggingface
+    - langchain-elasticsearch
+    - langchain-openai
+    - langchain-ollama
+    - langserve[all]
+    - langchain-cli    
+    - flask
