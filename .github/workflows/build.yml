@@ -84,15 +84,15 @@ jobs:
     - name: Determine tag name
       id: tag
       run: |
-        BUILD_NUMBER="$(git rev-list --count HEAD)"
-        SHORT_HASH="$(git rev-parse --short=7 HEAD)"
-        if [[ "${{ env.BRANCH_NAME }}" == "master" ]]; then
-          echo "name=${{ github.event.inputs.build_folder }}-b${BUILD_NUMBER}" >> $GITHUB_OUTPUT
-        else
-          SAFE_NAME=$(echo "${{ env.BRANCH_NAME }}" | tr '/' '-')
-          echo "name=${{ github.event.inputs.build_folder }}-b${BUILD_NUMBER}-${SHORT_HASH}" >> $GITHUB_OUTPUT
-        fi
-  
+        $BUILD_NUMBER = git rev-list --count HEAD
+        $SHORT_HASH = git rev-parse --short=7 HEAD
+        if ($env:BRANCH_NAME -eq "master") {
+          "name=${{ github.event.inputs.build_folder }}-b$BUILD_NUMBER" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        } else {
+          $SAFE_NAME = $env:BRANCH_NAME -replace '/', '-'
+          "name=${{ github.event.inputs.build_folder }}-b$BUILD_NUMBER-$SHORT_HASH" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        }  
+        
     - name: Debug Permissions
       run: |
         echo "Permissions for this GITHUB_TOKEN:"
@@ -451,4 +451,5 @@ jobs:
               });
 
           }
+
 
