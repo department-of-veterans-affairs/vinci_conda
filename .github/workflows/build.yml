@@ -269,7 +269,6 @@ jobs:
         }
 
     - name: Display final test status
-      shell: pwsh
       run: |
         Write-Host "=== FINAL BUILD STATUS SUMMARY ===" -ForegroundColor Green
         $testStatus = $env:POST_BUILD_TEST_STATUS
@@ -436,6 +435,7 @@ jobs:
               });
 
           }
+
 
 
 
