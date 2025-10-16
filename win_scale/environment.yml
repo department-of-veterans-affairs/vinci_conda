@@ -104,3 +104,4 @@ dependencies:
     - langserve[all]
     - dask[complete]
     - ray[data,train,tune,serve]
+    - uv
