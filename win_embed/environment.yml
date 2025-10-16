@@ -11,7 +11,6 @@ dependencies:
   - pytorch::pytorch
   - pytorch::torchvision
   - pytorch::pytorch-cuda=12.1
-  - conda-forge::dask
   - conda-forge::scikit-learn
   - conda-forge::pyarrow
   - conda-forge:cudnn
@@ -31,6 +30,8 @@ dependencies:
     - transformers>=4.51.0
     - sentence-transformers>3.0.0
     - accelerate
+    - tqdm
+    - dask[complete]
     - nltk==3.8.1
     - bitsandbytes
     - gpt4all
