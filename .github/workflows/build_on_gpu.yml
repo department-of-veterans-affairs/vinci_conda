@@ -1,0 +1,444 @@
+name: build_on_gpu
+run-name: Build on GPU ${{ github.event.inputs.build_folder }}
+on:
+  workflow_dispatch:
+    inputs:
+      build_folder:
+        description: "From which folder's environment.yml, the conda environment will be built. Don't use any whitespace."
+        type: string   
+        required: false
+        default: 'win_llama2'
+      target_folder:
+        description: 'Envs path (must be on D drive)'
+        type: string
+        required: false
+        default: 'D:\conda_envs'
+      download_jars:
+        description: "whether download jars for pyspark"
+        type: string
+        required: false
+        default: 'false'
+      sparknlp_version:
+        description: "sparknlp fat jar version"
+        type: string
+        required: false
+        default: '5.3.3'
+      sparknlp_gpu:
+        description: "sparknlp fat jar version, if wanting gpu, use '-gpu', otherwise leave it blank"
+        type: string
+        required: false
+        default: ''
+      download_spacy_model:
+        description: "whether download sm spacy models"
+        type: string
+        required: false
+        default: 'false'
+      zip_vol_size:
+        description: 'Max 7zip volumn size'
+        type: string
+        required: false
+        default: '800m' 
+      zip_jar_only:  
+        description: "whether zip jars file only"
+        type: string
+        required: false
+        default: 'false'   
+      retention_days:
+        description: 'Days to keep the artifacts'
+        type: int
+        required: false
+        default: 7
+      remove_cache:
+        description: "whether remove the ivy cache, some setups might require it in air-gap environment"
+        type: string
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+        
+jobs:
+  create_env:
+    runs-on: windows-4-cores-gpu
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '8'
+    
+    - name: Check Setting Folder
+      run: |
+        pwd
+        ls ${{ github.event.inputs.build_folder }}        
+
+    - name: Determine tag name
+      id: tag
+      run: |
+        $BUILD_NUMBER = git rev-list --count HEAD
+        $SHORT_HASH = git rev-parse --short=7 HEAD
+        if ($env:BRANCH_NAME -eq "master") {
+          "name=${{ github.event.inputs.build_folder }}-b$BUILD_NUMBER" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        } else {
+          $SAFE_NAME = $env:BRANCH_NAME -replace '/', '-'
+          "name=${{ github.event.inputs.build_folder }}-b$BUILD_NUMBER-$SHORT_HASH" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        }  
+        
+    
+    - name: Cache Miniforge Environment
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.event.inputs.target_folder }}/${{ github.event.inputs.build_folder }}
+        key: ${{ runner.os }}-${{ github.event.inputs.build_folder }}-${{ hashFiles('${{ github.event.inputs.build_folder }}/environment.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ github.event.inputs.build_folder }}-
+
+      
+    - name: run pre build script
+      shell: powershell {0}
+      run: |
+        cd ${{ github.event.inputs.build_folder }}     
+        pwd
+        if (Test-Path -Path ".\pre_build.ps1") {
+          # sometimes the activate above doesn't work for the following ps1
+          pwsh .\pre_build.ps1 ${{ github.event.inputs.target_folder }}\${{ github.event.inputs.build_folder }} 
+        }else{
+          pwd 
+          ls
+          Write-Output ".\pre_build.ps1 doesn't exist. Skip executing it."
+        }            
+
+    - name: Install miniforge
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniforge-version: latest         
+        auto-activate-base: true
+        
+    - name: Create virtual D drive with subst
+      run: |
+        mkdir C:\conda_envs
+        subst D: C:\conda_envs
+
+    
+    - name: Create Conda Environment
+      run: |
+        cd ${{ github.event.inputs.build_folder }}
+        $envPath = "${{ github.event.inputs.target_folder }}/${{ github.event.inputs.build_folder }}"
+        # Check if the environment directory exists
+        if (Test-Path -Path $envPath) {
+          Write-Host "Environment ${{ github.event.inputs.build_folder }} already exists under ${{ github.event.inputs.target_folder }}. Will try update..."
+          conda env update -f environment.yml -p ${{ github.event.inputs.target_folder }}/${{ github.event.inputs.build_folder }}
+        } else {
+          # Environment doesn't exist, proceed to create a new one
+          Write-Host "Creating new environment ${{ github.event.inputs.build_folder }} under ${{ github.event.inputs.target_folder }}."
+          conda env create -f environment.yml -p ${{ github.event.inputs.target_folder }}/${{ github.event.inputs.build_folder }}
+        }
+        echo "clean up cache..."
+        conda clean --all -f -y
+        pip cache purge
+
+
+    - name: check final environment settings
+      run: |
+        conda activate ${{ github.event.inputs.target_folder }}\${{ github.event.inputs.build_folder }}
+        mkdir -p zipped
+        conda env export > zipped/detailed_environment.yml
+        cat zipped/detailed_environment.yml
+
+
+    - name: Set HADOOP_HOME environment variable
+      if: ${{ github.event.inputs.download_jars == 'true' }}
+      run: |
+        New-Item -ItemType Directory -Force -Path "C:\hadoop\bin"
+        echo "HADOOP_HOME=C:\hadoop" | Out-File -FilePath $env:GITHUB_ENV -Append
+        echo "C:\hadoop\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+    - name: Download Hadoop DLLs for Windows
+      if: ${{ github.event.inputs.download_jars == 'true' }}
+      env:
+        PYSPARK_JARS_IVY: ${{ github.event.inputs.target_folder }}/ivy
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/steveloughran/winutils/raw/master/hadoop-3.0.0/bin/winutils.exe" -OutFile "C:\hadoop\bin\winutils.exe"
+        # Assuming hadoop.dll is also required and available at a certain URL - replace this URL with the actual location for hadoop.dll
+        Invoke-WebRequest -Uri "https://github.com/steveloughran/winutils/raw/master/hadoop-3.0.0/bin/hadoop.dll" -OutFile "C:\hadoop\bin\hadoop.dll"
+        echo "Create .ivy folder"        
+        New-Item -ItemType Directory -Force -Path  ${{ env.PYSPARK_JARS_IVY }}/jars
+
+    # change the default .ivy location to ${{ github.event.inputs.target_folder }}/ivy so that can be zipped together easily
+    - name: Cache Ivy jars
+      if: ${{ github.event.inputs.download_jars == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          $ivyDir =  ${{ github.event.inputs.target_folder }}/ivy/jars
+        key: ${{ runner.os }}-ivy-${{ hashFiles('**/*.jar') }}
+        restore-keys: |
+          ${{ runner.os }}-ivy-
+
+    - name: download sparknlp jars
+      if: ${{ github.event.inputs.download_jars == 'true' }}
+      env:
+        PYSPARK_JARS_IVY: ${{ github.event.inputs.target_folder }}/ivy
+      run: |
+        echo "PYSPARK_JARS_IVY=${{ env.PYSPARK_JARS_IVY }}"
+        conda activate ${{ github.event.inputs.target_folder }}/${{ github.event.inputs.build_folder }}
+        # if (!(Test-Path -Path "${{ env.PYSPARK_JARS_IVY }}/jars/spark-nlp-gpu-assembly-${{ github.event.inputs.sparknlp_version }}.jar")) {
+        #     curl -Lo "${{ env.PYSPARK_JARS_IVY }}/jars/spark-nlp${{ github.event.inputs.sparknlp_gpu }}-assembly-${{ github.event.inputs.sparknlp_version }}.jar" https://s3.amazonaws.com/auxdata.johnsnowlabs.com/public/jars/spark-nlp${{ github.event.inputs.sparknlp_gpu }}-assembly-${{ github.event.inputs.sparknlp_version }}.jar
+        #   } else {
+        #     echo "JAR already exists in ${{ env.PYSPARK_JARS_IVY }}/jars"
+        #   }
+        if ( [string]::IsNullOrEmpty('${{ github.event.inputs.sparknlp_gpu }}')){
+          python -c "import sparknlp; spark = sparknlp.start(params={'spark.jars.ivy':'${{ github.event.inputs.target_folder }}/ivy'}); spark.stop();"
+        }else{
+          python -c "import sparknlp; spark = sparknlp.start(gpu=True, params={'spark.jars.ivy':'${{ github.event.inputs.target_folder }}/ivy'}); spark.stop();"
+        }
+    
+    - name: download spacy models
+      if: ${{ github.event.inputs.download_spacy_model == 'true' }}
+      run: |
+        conda activate ${{ github.event.inputs.target_folder }}\${{ github.event.inputs.build_folder }}
+        python -m spacy download en_core_web_sm
+        python -m spacy download en_core_web_md
+
+    # - name: copy cached jars
+    #   run: |
+    #     $sourceDir = Join-Path -Path $env:USERPROFILE -ChildPath ".ivy"
+    #     Get-ChildItem -Path $sourceDir -Recurse -Filter *.jar | Copy-Item -Destination ${{ github.event.inputs.target_folder }}/${{ github.event.inputs.build_folder }}/lib/site-packages/pyspark/jars -Force
+
+    - name: check folder
+      run: |
+        ls ${{ github.event.inputs.target_folder }}
+        ls ${{ github.event.inputs.target_folder }}/${{ github.event.inputs.build_folder }}
+        
+    - name: check jar folder
+      if: ${{ github.event.inputs.download_jars == 'true' }}
+      run: |
+        ls ${{ github.event.inputs.target_folder }}/ivy
+        ls ${{ github.event.inputs.target_folder }}/ivy/jars
+
+    - name: clear jar cache folder
+      if: ${{ github.event.inputs.download_jars == 'true' && github.event.inputs.remove_cache == 'true' }}
+      run: |    
+        Remove-Item -Path ${{ github.event.inputs.target_folder }}/ivy/cache/* -Recurse -Force
+
+    - name: run post build script
+      shell: powershell {0}
+      run: |
+        cd ${{ github.event.inputs.build_folder }}     
+        pwd
+        Write-Host "=== POST-BUILD TESTING PHASE ===" -ForegroundColor Green
+        
+        if (Test-Path -Path ".\post_build.ps1") {
+          Write-Host "Found post_build.ps1, executing comprehensive tests..." -ForegroundColor Cyan
+          
+          # Execute the post-build script and capture the exit code
+          try {
+            pwsh .\post_build.ps1 ${{ github.event.inputs.target_folder }}\${{ github.event.inputs.build_folder }}
+            $exitCode = $LASTEXITCODE
+            
+            if ($exitCode -eq 0) {
+              Write-Host "🎉 POST-BUILD TESTS PASSED! Environment validation successful." -ForegroundColor Green
+              echo "POST_BUILD_TEST_STATUS=PASSED" >> $env:GITHUB_ENV
+              echo "POST_BUILD_TEST_MESSAGE=All tests passed successfully. Environment is ready for use." >> $env:GITHUB_ENV
+            } else {
+              Write-Host "❌ POST-BUILD TESTS FAILED! Exit code: $exitCode" -ForegroundColor Red
+              echo "POST_BUILD_TEST_STATUS=FAILED" >> $env:GITHUB_ENV
+              echo "POST_BUILD_TEST_MESSAGE=Tests failed with exit code $exitCode. Please check the test output above." >> $env:GITHUB_ENV
+              # Don't exit here - let the workflow continue to create release with test status
+            }
+          } catch {
+            Write-Host "❌ POST-BUILD SCRIPT EXECUTION FAILED: $_" -ForegroundColor Red
+            echo "POST_BUILD_TEST_STATUS=ERROR" >> $env:GITHUB_ENV
+            echo "POST_BUILD_TEST_MESSAGE=Script execution failed with error: $_" >> $env:GITHUB_ENV
+          }
+        } else {
+          Write-Host "⚠️  No post_build.ps1 found. Skipping post-build tests." -ForegroundColor Yellow
+          pwd 
+          ls
+          echo "POST_BUILD_TEST_STATUS=SKIPPED" >> $env:GITHUB_ENV
+          echo "POST_BUILD_TEST_MESSAGE=No post_build.ps1 script found for this environment." >> $env:GITHUB_ENV
+        }
+
+    - name: Display final test status
+      run: |
+        Write-Host "=== FINAL BUILD STATUS SUMMARY ===" -ForegroundColor Green
+        $testStatus = $env:POST_BUILD_TEST_STATUS
+        $testMessage = $env:POST_BUILD_TEST_MESSAGE
+        
+        switch ($testStatus) {
+          "PASSED" {
+            Write-Host "🎉 BUILD SUCCESSFUL with PASSING TESTS!" -ForegroundColor Green
+            Write-Host "Environment is validated and ready for use." -ForegroundColor Green
+          }
+          "FAILED" {
+            Write-Host "⚠️  BUILD COMPLETED but TESTS FAILED!" -ForegroundColor Yellow
+            Write-Host "Environment created but may have issues. Review test output." -ForegroundColor Yellow
+          }
+          "ERROR" {
+            Write-Host "⚠️  BUILD COMPLETED but TEST EXECUTION ERROR!" -ForegroundColor Yellow
+            Write-Host "Environment created but test validation had errors." -ForegroundColor Yellow
+          }
+          "SKIPPED" {
+            Write-Host "ℹ️  BUILD COMPLETED - Tests were skipped." -ForegroundColor Cyan
+            Write-Host "No post-build validation was performed." -ForegroundColor Cyan
+          }
+          default {
+            Write-Host "❓ BUILD COMPLETED - Test status unknown." -ForegroundColor Gray
+          }
+        }
+        
+        Write-Host "Test Details: $testMessage" -ForegroundColor Cyan
+        Write-Host "============================================" -ForegroundColor Green
+
+    - name: Check for 7-Zip installation
+      run: |
+        if (!(Test-Path "C:\Program Files\7-Zip\7z.exe")) {
+          choco install 7zip
+        }
+  
+    - name: Compress and split folder
+      if: ${{ github.event.inputs.zip_jar_only == 'false' }}
+      run: |
+        pwd
+        7z a -t7z -v${{ github.event.inputs.zip_vol_size }} zipped/${{ github.event.inputs.build_folder }}.7z ${{ github.event.inputs.target_folder }}*
+        ls zipped
+
+    - name: Compress and split ivy folder
+      if: ${{ github.event.inputs.zip_jar_only == 'true' }}
+      run: |
+        pwd
+        7z a -t7z -v${{ github.event.inputs.zip_vol_size }} zipped/${{ github.event.inputs.build_folder }}_ivy.7z ${{ github.event.inputs.target_folder }}/ivy*
+        ls zipped
+
+    - name: Upload compressed parts as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ github.event.inputs.build_folder }}
+        path: zipped/*.7z.*
+        retention-days: ${{ github.event.inputs.retention_days }}
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.name }}
+        release_name: ${{ steps.tag.outputs.name }}
+        draft: false
+        prerelease: false   
+
+    - name: Upload release
+      id: upload_release
+      uses: actions/github-script@v3
+      with:
+        github-token: ${{secrets.GITHUB_TOKEN}}
+        script: |          
+          const path = require('path');
+          const fs = require('fs');
+          
+          // Retrieve necessary information
+          const release_id = `${{ steps.create_release.outputs.id }}`;
+          const release_url = `${{ steps.create_release.outputs.html_url }}`;
+          const buildFolder = `${{ github.event.inputs.build_folder }}`;
+          const descriptionFilePath = `${buildFolder}/README.MD`;
+
+          let releaseDescription = '';
+
+          // Check for README file and load its content
+          if (fs.existsSync(descriptionFilePath)) {
+              releaseDescription = fs.readFileSync(descriptionFilePath, 'utf8');
+              console.log("Successfully read release description from 'README.MD'");
+          } else {
+              console.warn("README.MD not found in the specified build folder. Proceeding without a detailed description.");
+          }
+
+
+          // Construct the environment.yml GitHub file URL manually
+          const repoOwner = context.repo.owner;
+          const repoName = context.repo.repo;
+          const filePath = `${buildFolder}/environment.yml`;
+          const fileUrl = `https://github.com/${repoOwner}/${repoName}/blob/${{ steps.tag.outputs.name }}/${filePath}`;
+          console.log(`Constructed file URL: ${fileUrl}`);
+
+
+          // Add post-build test status
+          const testStatus = process.env.POST_BUILD_TEST_STATUS || 'UNKNOWN';
+          const testMessage = process.env.POST_BUILD_TEST_MESSAGE || 'Test status unavailable';
+          
+          // Add test status badge
+          let testBadge = '';
+          switch(testStatus) {
+            case 'PASSED':
+              testBadge = '🎉 **TESTS PASSED**';
+              break;
+            case 'FAILED':
+              testBadge = '❌ **TESTS FAILED**';
+              break;
+            case 'ERROR':
+              testBadge = '⚠️ **TEST ERROR**';
+              break;
+            case 'SKIPPED':
+              testBadge = '⏭️ **TESTS SKIPPED**';
+              break;
+            default:
+              testBadge = '❓ **TEST STATUS UNKNOWN**';
+          }
+          
+          releaseDescription += `\n\n## 🧪 Post-Build Test Results\n`;
+          releaseDescription += `${testBadge}\n\n`;
+          releaseDescription += `**Status:** ${testStatus}\n\n`;
+          releaseDescription += `**Details:** ${testMessage}\n\n`;
+          
+          if (testStatus === 'PASSED') {
+            releaseDescription += `✅ This environment has been validated and is ready for production use.\n\n`;
+          } else if (testStatus === 'FAILED' || testStatus === 'ERROR') {
+            releaseDescription += `⚠️ **WARNING:** This environment may have issues. Please review the build logs before use.\n\n`;
+          }
+
+          // Append the file URL to the release description
+          releaseDescription += `## 📋 Environment Configuration\n\n`;
+          releaseDescription += `View the corresponding [environment.yml](${fileUrl}) file used for this release.\n\n`;
+          releaseDescription += `**Installation:** Unzip the folders inside and put them under \`${{ github.event.inputs.target_folder }}\`\n\n`;
+          releaseDescription += `## ⚙️ Build Settings\n\n`;
+          releaseDescription += `- **download_jars:** ${{ github.event.inputs.download_jars }}\n`;
+          releaseDescription += `- **sparknlp_version:** ${{ github.event.inputs.sparknlp_version }}\n`;
+          releaseDescription += `- **sparknlp_gpu:** ${{ github.event.inputs.sparknlp_gpu }}\n`;
+          releaseDescription += `- **download_spacy_model:** ${{ github.event.inputs.download_spacy_model }}\n`;
+          releaseDescription += `- **zip_jar_only:** ${{ github.event.inputs.zip_jar_only }}\n`;          
+
+          // Update the release with the description
+          await github.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id,
+              body: releaseDescription,
+          });
+        
+          for (let file of await fs.readdirSync('./zipped')) {
+              console.log('uploadReleaseAsset', file);
+              await github.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release_id,
+                name: file,
+                data: await fs.readFileSync(`zipped/${file}`)
+              });
+
+          }
+
+
+
+
+
+
+
