@@ -105,5 +105,5 @@ dependencies:
     - dask[complete]
     - ray[data,train,tune,serve]
     - uv
-    - perfect
+    - prefect
 
