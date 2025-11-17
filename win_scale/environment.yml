@@ -77,7 +77,6 @@ dependencies:
     - pydantic
     - seaborn
     - bokeh
-    - sqlalchemy<2
     - sqlparse
     - statsmodels
     - tokenizers
