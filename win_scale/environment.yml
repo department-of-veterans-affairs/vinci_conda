@@ -105,4 +105,6 @@ dependencies:
     - ray[data,train,tune,serve]
     - uv
     - prefect
+    - Whoosh
+    - mcp
 
