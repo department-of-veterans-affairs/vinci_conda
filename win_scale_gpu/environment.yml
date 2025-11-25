@@ -1,4 +1,4 @@
-name: win_dev
+name: win_scale_gpu
 channels:
   - pytorch
   - conda-forge
