@@ -62,7 +62,7 @@ dependencies:
     - mlflow
     - multiprocess
     - murmurhash      
-    - oauthlib
+    - oauthlibEnhance version bumping process in build workflow for better branch handling and PR creation
     - openpyxl    
     - optimum
     - optuna
@@ -107,4 +107,5 @@ dependencies:
     - prefect
     - Whoosh
     - mcp
+    - tantivy
 

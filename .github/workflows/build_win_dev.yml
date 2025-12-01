@@ -97,6 +97,7 @@ jobs:
         # Always set git user config before any commit
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git config --global user.name "github-actions[bot]"
+        
         if [ ! -z "$EXISTING_RELEASE" ]; then
           # Bump last digit of version
           MAJOR=$(echo $VERSION | cut -d. -f1)
@@ -106,29 +107,73 @@ jobs:
           VERSION="$MAJOR.$MINOR.$PATCH"
           RELEASE_NAME="${FOLDER}_${VERSION}"
           echo "__version__ = \"$VERSION\"" > "$VERSION_FILE"
-          BRANCH_NAME="bump-version-${FOLDER}-${VERSION}-$(date +%s)"
-          if git show-ref --verify --quiet refs/heads/$BRANCH_NAME; then
-            echo "Branch $BRANCH_NAME already exists, checking it out."
-            git checkout $BRANCH_NAME
-          else
-            git checkout -b "$BRANCH_NAME"
-          fi
-          git add "$VERSION_FILE"
-          if git diff --cached --quiet; then
-            echo "No changes to commit for $VERSION_FILE."
-          else
-            git commit -m "Bump version for release $RELEASE_NAME"
-            git push origin "$BRANCH_NAME"
-          fi
-          # Check if PR already exists
-          EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --state open --json number --jq '.[0].number')
-          if [ -z "$EXISTING_PR" ]; then
-            gh pr create --title "Bump version for $RELEASE_NAME" --body "Auto bump version for release $RELEASE_NAME" --base main --head "$BRANCH_NAME"
-          else
-            echo "PR for branch $BRANCH_NAME already exists: #$EXISTING_PR"
-          fi
+          echo "needs_version_bump=true" >> $GITHUB_OUTPUT
+        else
+          echo "needs_version_bump=false" >> $GITHUB_OUTPUT
         fi
         echo "name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+        echo "version_file=${VERSION_FILE}" >> $GITHUB_OUTPUT
+
+    - name: Bump version via PR (main branch only)
+      if: ${{ github.ref_name == 'main' && steps.tag.outputs.needs_version_bump == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.MY_PAT }}
+      run: |
+        set -e
+        set -x
+        VERSION_FILE="${{ steps.tag.outputs.version_file }}"
+        RELEASE_NAME="${{ steps.tag.outputs.name }}"
+        BRANCH_NAME="bump-version-${RELEASE_NAME}-$(date +%s)"
+        
+        if git show-ref --verify --quiet refs/heads/$BRANCH_NAME; then
+          echo "Branch $BRANCH_NAME already exists, checking it out."
+          git checkout $BRANCH_NAME
+        else
+          git checkout -b "$BRANCH_NAME"
+        fi
+        
+        git add "$VERSION_FILE"
+        if git diff --cached --quiet; then
+          echo "No changes to commit for $VERSION_FILE."
+        else
+          git commit -m "Bump version for release $RELEASE_NAME"
+          git push origin "$BRANCH_NAME"
+        fi
+        
+        # Check if PR already exists
+        EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --state open --json number --jq '.[0].number')
+        if [ -z "$EXISTING_PR" ]; then
+          gh pr create --title "Bump version for $RELEASE_NAME" --body "Auto bump version for release $RELEASE_NAME" --base main --head "$BRANCH_NAME"
+        else
+          echo "PR for branch $BRANCH_NAME already exists: #$EXISTING_PR"
+        fi
+
+    - name: Bump version via direct commit (non-main branches)
+      if: ${{ github.ref_name != 'main' && steps.tag.outputs.needs_version_bump == 'true' }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -e
+        set -x
+        VERSION_FILE="${{ steps.tag.outputs.version_file }}"
+        RELEASE_NAME="${{ steps.tag.outputs.name }}"
+        CURRENT_BRANCH="${{ github.ref_name }}"
+        
+        # Ensure we're on the correct branch (not detached HEAD)
+        git checkout "$CURRENT_BRANCH"
+        
+        # Configure remote with token for authentication
+        git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+        
+        git add "$VERSION_FILE"
+        if git diff --cached --quiet; then
+          echo "No changes to commit for $VERSION_FILE."
+        else
+          git commit -m "Bump version for release $RELEASE_NAME"
+          git push origin "$CURRENT_BRANCH"
+        fi
   
                
    
